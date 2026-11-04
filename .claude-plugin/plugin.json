@@ -1,0 +1,11 @@
+{
+  "name": "cc-compact-view",
+  "version": "1.0.0",
+  "description": "Folds each run of tool calls into one clickable line and shows edits as one-line +/- summaries",
+  "author": { "name": "tmarenko" },
+  "homepage": "https://github.com/tmarenko/cc-compact-view",
+  "repository": "https://github.com/tmarenko/cc-compact-view",
+  "license": "MIT",
+  "keywords": ["claude-code", "mod", "transcript", "diff", "terminal-ui"],
+  "types": "./types/index.d.ts"
+}

@@ -1,0 +1,14 @@
+# Written by Claude Code each time it loads the mod from this folder
+.claude-plugin/types/
+
+# Local Claude Code settings for this checkout
+.claude/
+
+node_modules/
+reports/
+*.log
+
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

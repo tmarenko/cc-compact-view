@@ -1,0 +1,25 @@
+{
+  "name": "cc-compact-view",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Claude Code mod: folds each run of tool calls into one clickable line and shows edits as one-line +/- summaries",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "node scripts/typecheck.mjs",
+    "validate": "claude plugin validate . --strict",
+    "test": "claude plugin test .",
+    "check": "node scripts/check.mjs",
+    "demo": "node scripts/demo.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "typescript": "^5.9.0"
+  }
+}

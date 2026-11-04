@@ -1,0 +1,12 @@
+{
+  "name": "cc-compact-view",
+  "description": "A leaner Claude Code transcript",
+  "owner": { "name": "tmarenko" },
+  "plugins": [
+    {
+      "name": "cc-compact-view",
+      "description": "Folds each run of tool calls into one clickable line and shows edits as one-line +/- summaries",
+      "source": "./"
+    }
+  ]
+}
