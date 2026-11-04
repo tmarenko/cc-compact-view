@@ -21,7 +21,7 @@ function failingRows() {
 
 test('an error draws the stock row, says so once, and keeps every later row stock', async ($, on) => {
   const { rows, fix } = failingRows()
-  const shown = engine(on, { rows })
+  const { shown } = engine(on, { rows })
   expect(await isStock($, toolUse('e2'))).toBe(true)
   expect(shown).toHaveLength(1)
   expect(shown[0]).toContain('turned itself off')

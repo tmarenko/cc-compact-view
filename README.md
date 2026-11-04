@@ -63,8 +63,10 @@ Code every week.
 | `/compact-view` | toggles the mod; after an error, prints the error instead |
 | `/compact-view on` / `off` | sets it; the choice is kept across sessions |
 
-On the desktop app and VS Code only the one-line edit results apply; the fold
-is terminal-only.
+Runs fold in the fullscreen terminal (Claude Code's default layout), where rows
+can be clicked. On the main-screen layout (`CLAUDE_CODE_NO_FLICKER=0`, or under
+tmux), the desktop app, VS Code and mobile, only the one-line edit results
+apply.
 
 ## Development
 

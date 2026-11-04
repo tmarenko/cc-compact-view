@@ -39,12 +39,27 @@ test('an empty thinking block does not end the run', async ($, on) => {
 })
 
 test('a running call keeps its row; it folds once finished', async ($, on) => {
-  engine(on, { rows: [prompt(), said('', [editCall('e1')]), results('e1'), said('', [runningCall('b2', 'Bash')])] })
+  let isDone = false
+  engine(on, {
+    rows: () => [
+      prompt(),
+      said('', [editCall('e1')]),
+      results('e1'),
+      said('', [isDone ? bash('b2') : runningCall('b2', 'Bash')]),
+    ],
+  })
+  on('tool.call', () => ({ result: { stdout: 'ok' } }) as never)
   expect(await isStock($, toolUse('b2', 'Bash', true))).toBe(true)
+  expect(await isStock($, toolUse('e1'))).toBe(true)
+  // It finishes: the call is recorded and the transcript read again.
+  isDone = true
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'b2', command: 'sleep 300' } as never)
+  expect(await runLineOf($, toolUse('e1'))).toContain('Updated 1 file, ran 1 shell command')
+  expect(await isBlank($, toolUse('b2', 'Bash'))).toBe(true)
 })
 
 test('a group the transcript splits draws as usual, and the mod stays on', async ($, on) => {
-  const shown = engine(on, {
+  const { shown } = engine(on, {
     rows: [
       prompt(),
       said('', [call('r1', 'Read'), bash('b2')]),

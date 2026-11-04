@@ -8,12 +8,14 @@ type FileOutput = {
   type?: 'create' | 'update'
   content?: string
   structuredPatch?: Hunk[]
+  originalFile?: string | null
   gitDiff?: { additions?: number; deletions?: number }
   staged?: boolean
 }
-type NotebookOutput = { notebook_path?: string; cell_id?: string; edit_mode?: string }
+type NotebookOutput = { notebook_path?: string; cell_id?: string; edit_mode?: string; error?: string }
 type BashFile = { filePath?: string; hunks?: Hunk[]; created?: true; deleted?: true }
-export type BashEditDiff = { files?: BashFile[]; moreFiles?: number }
+// `changedFiles`: every changed file known, listed in `files` or not (at most 200).
+export type BashEditDiff = { files?: BashFile[]; moreFiles?: number; changedFiles?: string[] }
 
 export const FILE_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
 export const SHELL_TOOLS = new Set(['Bash', 'PowerShell'])
@@ -53,7 +55,7 @@ export function fileChange(tool: string, out: unknown): FileChange | undefined {
   if (!out || typeof out !== 'object') return undefined
   if (tool === 'NotebookEdit') {
     const nb = out as NotebookOutput
-    if (typeof nb.notebook_path !== 'string') return undefined
+    if (typeof nb.notebook_path !== 'string' || nb.error) return undefined
     const cell = nb.cell_id ? ` cell ${nb.cell_id}` : ''
     const verb = { replace: 'Replaced', insert: 'Inserted', delete: 'Deleted' }[nb.edit_mode ?? ''] ?? 'Edited'
     return { kind: 'notebook', verb: `${verb}${cell}`, path: nb.notebook_path }
@@ -63,8 +65,9 @@ export function fileChange(tool: string, out: unknown): FileChange | undefined {
   const path = f.filePath
   if (tool === 'Write' && f.type === 'create')
     return { kind: 'created', verb: 'Created', path, lines: lineCount(f.content) }
-  // An empty patch means the diff timed out or the file was too large: git's counts stand in.
-  if (!f.structuredPatch?.length && f.gitDiff) {
+  // An empty patch with no original content kept: the file was too large to diff, so git's
+  // counts stand in. An empty patch otherwise means nothing changed (or the diff timed out).
+  if (!f.structuredPatch?.length && f.originalFile === null && f.gitDiff) {
     return {
       kind: 'updated',
       verb: 'Updated',
@@ -74,6 +77,21 @@ export function fileChange(tool: string, out: unknown): FileChange | undefined {
     }
   }
   return { kind: 'updated', verb: 'Updated', path, ...count(f.structuredPatch) }
+}
+
+// The file a call named, for one whose result the transcript doesn't keep (a subagent's):
+// which file it changed, but not how much.
+export function fileOfInput(tool: string, input: Record<string, unknown>): FileChange | undefined {
+  const path = tool === 'NotebookEdit' ? input.notebook_path : input.file_path
+  if (typeof path !== 'string') return undefined
+  if (tool === 'NotebookEdit') return { kind: 'notebook', verb: 'Edited', path }
+  return { kind: 'updated', verb: 'Updated', path }
+}
+
+// One key per file however its path is written: slashes either way, and on a Windows drive any case.
+export function pathKey(path: string) {
+  const slashed = path.replace(/\\/g, '/')
+  return /^[a-z]:\//i.test(slashed) ? slashed.toLowerCase() : slashed
 }
 
 // The diff the engine keeps on a shell command's result for drawing (an internal field).
@@ -89,4 +107,15 @@ export function bashChanges(diff: BashEditDiff | undefined): FileChange[] {
     if (f.deleted) return { kind: 'deleted', verb: 'Deleted', path, lines: removed }
     return { kind: 'updated', verb: 'Updated', path, added, removed }
   })
+}
+
+// Every file a shell command changed, for counting: those with a diff, then the rest it names
+// without one (counted as updated, their lines unknown).
+export function bashChangedFiles(diff: BashEditDiff | undefined): FileChange[] {
+  const listed = bashChanges(diff)
+  const seen = new Set(listed.map(f => pathKey(f.path)))
+  const rest = (Array.isArray(diff?.changedFiles) ? diff.changedFiles : [])
+    .filter((path): path is string => typeof path === 'string' && !seen.has(pathKey(path)))
+    .map((path): FileChange => ({ kind: 'updated', verb: 'Updated', path }))
+  return [...listed, ...rest]
 }

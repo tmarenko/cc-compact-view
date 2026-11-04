@@ -55,9 +55,18 @@ export function clearBroken() {
   broken = undefined
 }
 
-// Whether the fold draws on this surface now: the terminal only, switched on, no error so far.
-export async function isFolding($: Store, surface: string) {
-  if (surface !== 'terminal') return false
+// Whether the fold draws on this drawing: switched on, no error so far, and the fullscreen terminal
+// only. Only there do clicks reach a row and can a row already drawn be drawn again; on the main
+// screen a run's first row, printed to scrollback before the run formed, could never become its
+// line while the rest of the run hid.
+export async function isFolding($: Store, e: { surface: string; viewport?: { isFullscreen?: boolean } }) {
+  if (e.surface !== 'terminal' || e.viewport?.isFullscreen !== true) return false
+  await load($)
+  return isActive()
+}
+
+// Whether the one-line results draw: switched on and no error so far, on every surface.
+export async function isShortening($: Store) {
   await load($)
   return isActive()
 }

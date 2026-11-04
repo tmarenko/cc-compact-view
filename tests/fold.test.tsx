@@ -116,11 +116,14 @@ test("an open run keeps its line when the engine's own click expands its group",
       ],
       isExpanded,
     )
-  // Closed and expanded (ctrl+o): drawn in full by the engine.
+  // Closed and expanded (--verbose): drawn in full by the engine.
   expect(await runLineOf($, group(true))).toBe(undefined)
   const ui = await $.ui.mount(group(false))
   await ui.press({ key: 'fold' })
   await ui.unmount()
-  // Open: the run's line stays whatever the engine's own flag says.
-  expect(await isStock($, group(true))).toBe(true)
+  // Open: the run's line stays over the group's rows, whatever the engine's own flag says.
+  const open = await $.ui.mount(group(true))
+  expect((await open.find({ type: 'Button' }))?.text).toContain('ran 1 shell command, read 1 file')
+  expect((await open.find({ type: 'Text', text: /stock/ }))?.text).toBe('stock row')
+  await open.unmount()
 })

@@ -10,6 +10,10 @@ const COMMAND = 'compact-view'
 export const ROOT = 'C:\\proj'
 // One hunk: +2 −1.
 export const PATCH = [{ oldStart: 1, oldLines: 2, newStart: 1, newLines: 3, lines: [' a', '-b', '+c', '+d'] }]
+// The fullscreen terminal, where the fold draws; `onMainScreen` moves a component off it.
+const FULLSCREEN = { columns: 120, rows: 40, isFullscreen: true }
+export const onMainScreen = (component: unknown) =>
+  ({ ...(component as object), viewport: { ...FULLSCREEN, isFullscreen: false } }) as never
 
 // A transcript row; `thinking` (test-only) stands for a thinking block shown in the transcript.
 export type Row = SessionMessage & { thinking?: string }
@@ -33,8 +37,9 @@ function apiForm(rows: Row[]) {
 }
 
 // Stands in for the engine beneath the mod: the main transcript (`rows`, or a function read
-// each time, which may throw), subagents' transcripts by agentId, and the stored values.
-// Every row the mod passes on draws `stock row`. Returns the notices shown to the person.
+// each time, which may throw), subagents' transcripts by agentId (an unknown one refused, as the
+// session refuses one it can't read), and the stored values. Every row the mod passes on draws
+// `stock row`. Returns the notices shown to the person, and counts of transcript reads and redraws.
 export function engine(
   on: On,
   {
@@ -44,9 +49,12 @@ export function engine(
   }: { rows?: Row[] | (() => Row[]); agents?: Record<string, Row[]>; store?: Record<string, unknown> } = {},
 ) {
   const shown: string[] = []
+  const counts = { reads: 0, redraws: 0 }
   mock.store(on, store)
   on('session.root', () => ({ value: ROOT }))
   on('session.messages', (_, e) => {
+    counts.reads++
+    if (e.agentId !== undefined && !(e.agentId in agents)) return { deny: 'no such agent' } as never
     const own = e.agentId === undefined ? (typeof rows === 'function' ? rows() : rows) : (agents[e.agentId] ?? [])
     return { value: e.as === 'api' ? apiForm(own) : own } as never
   })
@@ -55,13 +63,16 @@ export function engine(
     return { value: undefined }
   })
   on('ui.log', () => ({ value: undefined }))
-  on('ui.invalidate', () => ({ value: undefined }))
+  on('ui.invalidate', () => {
+    counts.redraws++
+    return { value: undefined }
+  })
   on('clock.sleep', () => ({ value: undefined }))
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
     return <Text>stock row</Text>
   })
-  return shown
+  return { shown, counts }
 }
 
 // Rows of a transcript.
@@ -105,6 +116,15 @@ export const failedCall = (id: string, tool: string) => ({
   isError: true as const,
 })
 export const runningCall = (id: string, tool: string) => ({ tool_use_id: id, tool, input: {} })
+// An Agent call that spawned `agentId`, as the transcript names it.
+export const agentCall = (id: string, agentId: string) => ({ ...call(id, 'Agent', { status: 'completed' }), agentId })
+// A subagent's call: its transcript keeps no result, only the text the model read.
+export const subagentCall = (id: string, tool: string, input: Record<string, unknown> = {}) => ({
+  tool_use_id: id,
+  tool,
+  input,
+  text: 'ok',
+})
 
 // Components a test mounts through the mod, on the terminal.
 export const toolUse = (id: string, tool = 'Edit', isRunning = false) =>
@@ -113,6 +133,7 @@ export const toolUse = (id: string, tool = 'Edit', isRunning = false) =>
     component: 'ToolUse',
     requestId: id,
     surface: 'terminal',
+    viewport: FULLSCREEN,
     props: { tool_use_id: id, tool, input: {}, isRunning, isErrored: false, isInterrupted: false },
   }) as const
 
@@ -122,6 +143,7 @@ export const toolResult = (id: string, tool: string, output: unknown, extra: Rec
     component: 'ToolResult',
     requestId: id,
     surface: 'terminal',
+    viewport: FULLSCREEN,
     props: { tool_use_id: id, tool, output, isErrored: false, ...extra },
   }) as never
 
@@ -132,6 +154,7 @@ export const toolGroup = (calls: [string, string, boolean?, boolean?][], isExpan
     component: 'ToolGroup',
     requestId: `g-${calls[0]![0]}`,
     surface: 'terminal',
+    viewport: FULLSCREEN,
     props: {
       calls: calls.map(([id, tool, isRunning, isErrored]) => ({
         tool_use_id: id,

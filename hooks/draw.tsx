@@ -9,7 +9,7 @@ export const GUTTER = '  ⎿  '
 // Where a row's text starts, past the engine's bullet: a line drawn without one lines up there.
 export const TEXT_INDENT = 2
 
-export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+export const plural = (n: number, word: string, words = `${word}s`) => `${n} ${n === 1 ? word : words}`
 
 // Control, bidi and zero-width characters shown as escapes, so a path stays one honest line.
 // biome-ignore lint/complexity/useRegexLiterals: kept as escaped text, the plugin validator rejects raw invisible characters

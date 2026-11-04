@@ -6,19 +6,29 @@ Claude Code changes. For what it does and how to install it, see the
 
 ## Behaviour rules
 
-**What folds.** Edit, MultiEdit, Write, NotebookEdit, Bash, PowerShell, Read,
-Grep, Glob, WebFetch, WebSearch, Agent (subagent launches) and every MCP tool
-(`isFoldable` in `hooks/kinds.ts`). The line counts them by kind:
+**Where it folds.** Only in the fullscreen terminal (`e.viewport.isFullscreen`,
+Claude Code's default layout). Only there do clicks reach a row, and only there
+can a row already drawn be drawn again: on the main screen a run's first row,
+printed to scrollback before the run formed, could never turn into the run
+line while the rest of the run hid. The one-line results draw on every surface.
+
+**What folds** (`hooks/kinds.ts`, one table: add a kind there). The line counts
+the calls by kind:
 
 | Kind | Wording |
 | --- | --- |
-| file changes (Edit/Write/notebook, and files a Bash command changed) | `updated N files`, `created N files`, `deleted N files`, `edited N notebooks`, plus total `+added −removed` |
+| file changes (Edit/MultiEdit/Write/NotebookEdit, and every file a shell command changed) | `updated N files`, `created N files`, `deleted N files`, `edited N notebooks`, plus total `+added −removed`; each file once, however its path is written |
 | Bash / PowerShell | `ran N shell commands` |
 | Read | `read N files` |
 | Grep / Glob | `searched N patterns` |
+| LSP | `made N code lookups` |
 | WebFetch / WebSearch | `made N web lookups` |
-| Agent | `launched N agents` |
-| MCP tools | `called N MCP tools` |
+| ToolSearch | `ran N tool searches` |
+| Agent (`Task` in older sessions) | `launched N agents` |
+| MCP tools and MCP resource tools | `called N MCP tools` |
+
+MultiEdit and PowerShell aren't registered on every build; they stay listed
+for the builds and sessions that have them.
 
 **What a run is.** Finished foldable calls in one conversation (the main one,
 or one subagent's) with nothing drawn between them: no text from Claude, no
@@ -34,23 +44,30 @@ one call is not folded (an edit still gets its one-line result).
   excludes nothing: the engine may later move a finished call out of it (a
   command that changed files gets a row of its own) and never draw that
   group again, so an exclusion would stick for good;
-- a finished engine group line ("Ran 2 shell commands") that can't fold whole
-  (a call that isn't foldable, or the transcript splits it differently from
-  the engine): it draws as usual and its calls leave every run
-  (`stockGrouped`), so a run line can never sit inside it.
+- a finished engine group line ("Ran 2 shell commands") that can't fold whole:
+  a call that isn't foldable; a row that isn't a call (recalled memory, hook
+  timing: `isCallsOnly` false with no failed call); the transcript splitting it
+  differently from the engine; or the group expanded while its run is closed
+  (`--verbose`, or a click on its rows left the engine's flag set). It draws as
+  usual and its calls leave every run (`stockGrouped`), so a run line can never
+  sit inside it, and a hidden row can never belong to it.
 
 **Failed calls fold too** (a non-zero exit, a refused edit), as Claude Code's
 own group line folds them: they count as their kind, with no separate
 "failed" mark; opening the run shows the error. A failed call outside any
-run draws its error as usual.
+run draws its error as usual. A call interrupted with Esc counts as failed too.
 
-**Never changed:** an edit held for review, the permission dialog, ctrl+o and
-`--verbose`, a Bash command's output outside a closed run. On the desktop and
-VS Code surfaces only the one-line edit results apply; the fold is
-terminal-only.
+**Never changed:** an edit held for review, a failed edit or notebook edit, the
+permission dialog, ctrl+o and `--verbose` (no `Collapse:` line there either),
+a Bash command's output outside a closed run.
 
-A `/compact-view` switch changes the fold at once; one-line edit results keep
-how they were first drawn.
+`/compact-view off` and `on` change every row at once, the one-line results
+and the fold alike.
+
+**Counts.** An empty patch means nothing changed; git's counts for the file
+stand in only when Claude Code kept no original content (too large to diff).
+A shell command counts every file it changed (`changedFiles`), those without
+a shown diff with no line counts.
 
 ## Safety: what happens when something breaks
 
@@ -66,7 +83,10 @@ per hook) calls `fallBack`, then `trip()` in `hooks/switch.ts`, which:
 
 `/compact-view` then prints the error; `/compact-view on` or
 `/reload-plugins` tries again. A failure in the `tool.call` hook never blocks
-or re-runs the call (`next` is replay-safe in a `.catch`).
+or re-runs the call (`next` is replay-safe in a `.catch`), and a call the
+person interrupts (`next.signal.aborted`) passes through without tripping.
+That hook keeps recording calls while the mod is off, so `/compact-view on`
+finds them; nothing reads the records then, so nothing redraws.
 
 **Rule to keep:** never swallow an error inside the fold (`foldState`,
 `transcript`). If one row fell back to stock while the rest of its run stayed
@@ -92,20 +112,35 @@ line per changed file follows the command's normal output.
 
 **The fold** (`fold.tsx`, `runs.ts`, `transcript.ts`):
 
-- `tool.call` (foldable tools) writes `running`, then the outcome
-  (`{ files }`, `{ files: [], isFailed }`, or `stock` for an edit held for
-  review) into the `calls` state, and calls `readAgain`. For a subagent's call it
-  also records `owners[tool_use_id] = agentId`, since render events don't say
-  whose a row is. The writes redraw every row that read them.
-- A row reads its conversation's transcript once per call made (shared promise
-  per conversation, failed reads not cached), in two forms:
+- `tool.call` (foldable tools the model calls; `next.origin.plugin` is
+  `engine`) writes `running`, then the outcome (`{ files }`,
+  `{ files: [], isFailed }`, or `stock` for an edit held for review) into the
+  `calls` state, and calls `readAgain`. For a subagent's call it also records
+  `owners[tool_use_id] = agentId`, since render events don't say whose a row
+  is. The writes redraw every row that read them. Both records keep the last
+  500 calls; older ones are read from the transcript instead.
+- A row finds its conversation (`ownerOf`): the recorded owner, else the main
+  transcript, else the subagents the transcripts name (each Agent call's
+  `agentId`), level by level. So a subagent's run folds even when the mod never
+  saw its calls made. A subagent's transcript keeps no results: an edit there
+  counts its file without line counts (`fileOfInput`).
+- Transcripts are read once per tick per conversation (shared promise, failed
+  reads not cached; a read that lacks the row asking is made once more, at most
+  once a tick). The tick moves on each recorded call, each `turn.start` (a
+  rewind or `/clear` comes before one) and each `session.compact`. Two forms:
   `$.session.messages({ as: 'api', agentId })` for the order and the breaks
   (only it keeps thinking blocks) and `$.session.messages({ agentId })` for
   each call's stored result. `flatten` builds the ordered call list marking
   breaks; `runOf` finds the run holding a call.
 - The run's **first** row (a standalone `ToolUse`, or an engine `ToolGroup`
   line) draws the run line; every other row of the run draws an empty `Box`,
-  and so does its `ToolResult`.
+  and so does its `ToolResult`. Every row checks that the first one finds
+  itself in the same conversation; if not, the run doesn't fold, since the
+  first row would draw as usual and the rest would vanish.
+- An engine group decides whether it folds as if it had kept nothing out
+  (`foldState(..., own)`), then updates `stockGrouped` in one step after that
+  wait. Rows draw concurrently (one state write redraws them all), so a row
+  must never read the set half-changed.
 - Open (`isOpen` for the run, keyed by its first call): the head draws the
   run line followed by its normal row, the other rows draw normally, and an
   engine group is forced `isExpanded: true` so its calls show as rows. The
@@ -130,8 +165,8 @@ line per changed file follows the command's normal output.
 | `hooks/draw.tsx` | `drawLine`, `clickableLine`, `plural`, `safe`, `GUTTER`, `TEXT_INDENT` |
 | `hooks/switch.ts` | the on/off switch and its store, the safety switch (`trip`, `fallBack`), `isFolding`, `redrawAll`, the plugin and command names |
 | `types/index.d.ts` | `$.state` contract: `calls` (outcome per call, shape tag `calls-3`), `owners` (subagent per call, `owners-1`), `isOpen` (per run), `isDiffOpen` (per one-line result) |
-| `tests/*.test.tsx` | `claude plugin test` suites: `register` (one-line results, diff click, toggle), `fold` (runs, clicks, groups), `runs` (thinking breaks, running calls, disagreeing groups, failed calls, agents/MCP, subagent views, bottom collapse line), `safety` (forced failures fall back) |
-| `tests/kit.tsx` | test-only: the fake engine, transcript rows and calls, the components a test mounts, and checks (`isStock`, `isBlank`, `runLineOf`) |
+| `tests/*.test.tsx` | `claude plugin test` suites: `register` (one-line results, diff click, toggle), `fold` (runs, clicks, groups), `runs` (thinking breaks, running calls, disagreeing groups, failed calls, agents/MCP, subagent views, bottom collapse line), `safety` (forced failures fall back), `edges` (concurrent drawing, subagent discovery, expanded and mixed groups, the main screen, ctrl+o, counting, transcript reads) |
+| `tests/kit.tsx` | test-only: the fake engine (counts reads and redraws, refuses unknown subagents), transcript rows and calls, the components a test mounts (on the fullscreen terminal; `onMainScreen` moves one off it), and checks (`isStock`, `isBlank`, `runLineOf`) |
 | `scripts/check.mjs` | runs every check, writes `reports/` |
 | `scripts/typecheck.mjs` | finds Claude Code's API types and runs `tsc` against them |
 | `scripts/demo.mjs` | writes `docs/demo.svg`, the README's animated example (mocked data); `npm run demo` after changing what the run line says |
@@ -221,10 +256,15 @@ renamed render props (`ToolUse`, `ToolResult`, `ToolGroup`), the
   transcript's API form; the run line can then sit above it.
 - A stock engine group splits the runs around it, so a turn with one can show
   two run lines instead of one.
-- Folding inside a subagent's view needs the mod to have seen that
-  subagent's calls being made: subagents started before the mod loaded, or
-  ones whose transcript the session can no longer read, stay stock.
+- A subagent whose transcript the session can no longer read, or that no
+  transcript names any more (compacted away) and whose calls the mod didn't
+  see made, stays stock.
+- In a subagent's view, edits count their files but no `+N −M`: its
+  transcript keeps no results, unless the mod saw the calls made.
 - The transcript is read again after every foldable call; fine in long
   sessions so far, not measured on very large ones. A read past the hook
   budget trips the mod off rather than hanging the screen.
+- Pressing Esc during a call passes through without tripping the mod. The
+  test kit can't interrupt a call, so this path is checked by reading the
+  types (`next.signal`), not by a test.
 - `claude plugin test` has no coverage output, so there is no coverage report.

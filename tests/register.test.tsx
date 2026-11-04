@@ -29,6 +29,7 @@ test('review-held edits, errors and ctrl+o keep the stock diff', async ($, on) =
   const cases = [
     result('Edit', { filePath: 'C:/proj/a.ts', structuredPatch: PATCH, staged: true }),
     result('Edit', 'boom', { isErrored: true }),
+    result('Edit', { filePath: 'C:/proj/a.ts', structuredPatch: PATCH }, { isErrored: true }),
     result('Edit', { filePath: 'C:/proj/a.ts', structuredPatch: PATCH }, { isExpanded: true }),
     result('Read', { file: {} }),
   ]
@@ -78,4 +79,17 @@ test('a click on the one-line result shows the full diff under it, another hides
   await ui.press({ key: 'diff-file' })
   expect(await ui.find({ type: 'Text', text: /stock/ })).toBe(undefined)
   await ui.unmount()
+})
+
+test('one-line results draw on every surface, with the gutter on the terminal only', async ($, on) => {
+  engine(on)
+  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
+    const component = result('Edit', { filePath: 'C:/proj/a.ts', structuredPatch: PATCH }) as { surface: string }
+    const ui = await $.ui.mount({ ...component, surface } as never)
+    const lead = surface === 'terminal' ? '  ⎿  ' : ''
+    expect((await ui.find({ type: 'Text', text: /Updated/ }))?.text).toBe(`${lead}Updated a.ts  +2 −1`)
+    await ui.press({ key: 'diff-file' })
+    expect((await ui.find({ type: 'Text', text: /stock/ }))?.text).toBe('stock row')
+    await ui.unmount()
+  }
 })
