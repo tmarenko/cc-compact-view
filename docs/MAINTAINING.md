@@ -171,7 +171,8 @@ line per changed file follows the command's normal output.
 | `scripts/typecheck.mjs` | finds Claude Code's API types and runs `tsc` against them |
 | `scripts/demo.mjs` | writes `docs/demo.svg`, the README's animated example (mocked data); `npm run demo` after changing what the run line says |
 | `scripts/version.mjs` | checks plugin.json, package.json, the lockfile, the newest CHANGELOG entry (and a release tag) agree |
-| `.github/workflows/release.yml` | on a `v*` tag: version check, then a GitHub Release from the CHANGELOG |
+| `.github/workflows/release.yml` | on a `v*` tag: version check, then a GitHub Release: the CHANGELOG entry (unwrapped, since GitHub draws every newline in release notes), then GitHub's generated notes (merged pull requests, the "Full Changelog" compare link) |
+| `.github/release.yml` | how the generated notes group pull requests (dependency updates apart) |
 | `.github/dependabot.yml` | monthly grouped update pull requests for npm dev tools and actions |
 | `biome.json` | formatting and lint rules (Biome) |
 | `.github/workflows/ci.yml` | `npm run check` on push, pull request and weekly against the newest Claude Code |

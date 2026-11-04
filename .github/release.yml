@@ -1,0 +1,7 @@
+# How GitHub groups the merged pull requests in a release's generated notes.
+changelog:
+  categories:
+    - title: Dependency updates
+      labels: [dependencies]
+    - title: Other changes
+      labels: ["*"]

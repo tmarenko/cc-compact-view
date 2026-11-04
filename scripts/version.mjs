@@ -37,5 +37,18 @@ if (wrong.length) {
 }
 console.log(`version: ${version} everywhere`)
 
+// The section as release notes. GitHub draws every newline in them as a line break, so each
+// paragraph and list item, wrapped in the changelog, becomes one line.
+function unwrap(text) {
+  const lines = []
+  for (const line of text.split('\n')) {
+    const isContinuation = line.trim() !== '' && !/^\s*([-*]|\d+\.)\s/.test(line) && !line.startsWith('#')
+    const last = lines.length - 1
+    if (isContinuation && last >= 0 && lines[last].trim() !== '') lines[last] += ` ${line.trim()}`
+    else lines.push(line)
+  }
+  return lines.join('\n')
+}
+
 const notes = arg('--notes')
-if (notes) writeFileSync(notes, `${sections[0].split('\n').slice(1).join('\n').trim()}\n`)
+if (notes) writeFileSync(notes, `${unwrap(sections[0].split('\n').slice(1).join('\n').trim())}\n`)

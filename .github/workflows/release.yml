@@ -17,6 +17,8 @@ jobs:
           node-version: 22
       # Fails when the tag, plugin.json, package.json and CHANGELOG.md disagree.
       - run: node scripts/version.mjs --tag "$GITHUB_REF_NAME" --notes notes.md
-      - run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
+      # Our notes, then GitHub's generated ones: merged pull requests and the "Full Changelog" link
+      # comparing this tag with the previous release (grouped by .github/release.yml).
+      - run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
