@@ -1,6 +1,6 @@
 {
   "name": "cc-compact-view",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Folds each run of tool calls into one clickable line and shows edits as one-line +/- summaries",
   "author": { "name": "tmarenko" },
   "homepage": "https://github.com/tmarenko/cc-compact-view",

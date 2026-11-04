@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.1 (2026-11-04)
+
+Maintenance release: the mod itself is unchanged.
+
+- The type-check runs on TypeScript 7 (Dependabot update).
+- Release notes put each changelog item on one line, followed by GitHub's
+  generated notes: merged pull requests and the compare link to the previous
+  release.
+
 ## 1.1.0 (2026-11-04)
 
 - Runs fold only in the fullscreen terminal, Claude Code's default layout; on
