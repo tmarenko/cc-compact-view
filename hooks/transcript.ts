@@ -3,12 +3,13 @@ import type { EngineInterface, SessionMessage, ToolUseSummary } from 'claude-cod
 // A conversation's calls in order, read from the session and kept until something changes it:
 // a call made, a new turn, a compaction.
 
-export type Flat = { list: { call: ToolUseSummary; isAfterBreak: boolean }[]; ids: Set<string> }
+// `isEndBreak`: something drawn follows the last call (Claude's text after it, the next prompt).
+export type Flat = { list: { call: ToolUseSummary; isAfterBreak: boolean }[]; ids: Set<string>; isEndBreak: boolean }
 
 type Block = { type: string; [field: string]: unknown }
 type ApiMessage = { role: string; content: Block[] }
 
-const EMPTY: Flat = { list: [], ids: new Set() }
+const EMPTY: Flat = { list: [], ids: new Set(), isEndBreak: false }
 
 // Moves whenever the transcript may have changed: every read made before it is stale.
 let tick = 0
@@ -22,9 +23,23 @@ export function readAgain() {
 
 const hasWords = (value: unknown) => typeof value === 'string' && value.trim() !== ''
 
+// A prompt: a user message that holds words and no tool result.
+const isPrompt = (blocks: Block[]) =>
+  !blocks.some(b => b.type === 'tool_result') && blocks.some(b => b.type === 'text' && hasWords(b.text))
+// Claude's text, or a thinking update shown in the transcript.
+const isShown = (b: Block) => (b.type === 'text' && hasWords(b.text)) || (b.type === 'thinking' && hasWords(b.thinking))
+
+// Whether a row draws something between calls, as the read below counts one: a prompt, Claude's
+// text, or a thinking update shown in the transcript.
+export function isBreakRow(message: { role?: string; content?: unknown }) {
+  const blocks = Array.isArray(message.content) ? (message.content as Block[]) : []
+  return message.role === 'user' ? isPrompt(blocks) : message.role === 'assistant' && blocks.some(isShown)
+}
+
 // The calls in order, each marked when something drawn sits above it: a prompt, Claude's text,
-// or a thinking update shown in the transcript. Read from the Messages API form, the one that
-// keeps thinking blocks; each call's record (its result) comes from the session's rows.
+// or a thinking update shown in the transcript; and whether such a row follows the last call.
+// Read from the Messages API form, the one that keeps thinking blocks; each call's record (its
+// result) comes from the session's rows.
 function flatten(api: ApiMessage[], rows: SessionMessage[]): Flat {
   const summaries = new Map(rows.flatMap(row => row.toolUses).map(call => [call.tool_use_id, call]))
   const list: Flat['list'] = []
@@ -32,13 +47,11 @@ function flatten(api: ApiMessage[], rows: SessionMessage[]): Flat {
   for (const message of api) {
     const blocks = Array.isArray(message.content) ? message.content : []
     if (message.role === 'user') {
-      if (!blocks.some(b => b.type === 'tool_result') && blocks.some(b => b.type === 'text' && hasWords(b.text))) {
-        isBreak = true
-      }
+      if (isPrompt(blocks)) isBreak = true
       continue
     }
     for (const block of blocks) {
-      if ((block.type === 'text' && hasWords(block.text)) || (block.type === 'thinking' && hasWords(block.thinking))) {
+      if (isShown(block)) {
         isBreak = true
       } else if (block.type === 'tool_use' && typeof block.id === 'string') {
         const call = summaries.get(block.id) ?? {
@@ -51,7 +64,7 @@ function flatten(api: ApiMessage[], rows: SessionMessage[]): Flat {
       }
     }
   }
-  return { list, ids: new Set(list.map(one => one.call.tool_use_id)) }
+  return { list, ids: new Set(list.map(one => one.call.tool_use_id)), isEndBreak: list.length > 0 && isBreak }
 }
 
 function startRead($: EngineInterface, key: string, agentId: string | undefined, isReread: boolean) {

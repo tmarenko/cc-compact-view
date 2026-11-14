@@ -20,6 +20,11 @@ untouched.
   Updated 2 files, created 1 file, ran 3 shell commands, read 1 file  +52 −7
   ```
 
+  A run folds once Claude moves on: when its reply begins, when it writes or
+  thinks after the run, or when you send your next message. Until then the
+  rows stay where they were drawn, so the text above doesn't move up and down
+  as each call finishes.
+
   Click it to open the run into the usual rows; a `Collapse: ...` line under
   the last call closes it again without scrolling back up. Subagent views fold
   the same way.

@@ -7,6 +7,7 @@ import {
   engine,
   isBlank,
   isStock,
+  moveOn,
   onMainScreen,
   PATCH,
   prompt,
@@ -57,6 +58,7 @@ test("a subagent's run folds without its calls seen made, found through the Agen
           subagentCall('s2', 'Bash'),
           subagentCall('s3', 'Bash'),
         ]),
+        moveOn(),
       ],
     },
   })
@@ -69,7 +71,7 @@ test("a subagent's run whose first call no transcript places keeps every row", a
   // transcript names no agent (compacted away): the first row can't find its run.
   engine(on, {
     rows: [prompt()],
-    agents: { 'agent-1': [prompt('task'), said('', [editCall('s1'), bash('s2'), bash('s3')])] },
+    agents: { 'agent-1': [prompt('task'), said('', [editCall('s1'), bash('s2'), bash('s3')]), moveOn()] },
   })
   on('tool.call', () => ({ result: { stdout: 'ok' } }) as never)
   const make = (id: string, agentId: string) =>
@@ -82,7 +84,7 @@ test("a subagent's run whose first call no transcript places keeps every row", a
 })
 
 test('a closed run whose group was left expanded shows every row', async ($, on) => {
-  engine(on, { rows: [prompt(), said('', [bash('b1'), bash('b2'), editCall('e3')])] })
+  engine(on, { rows: [prompt(), said('', [bash('b1'), bash('b2'), editCall('e3')]), moveOn()] })
   // The engine's own flag, left set by a click on a row inside the group.
   const group = toolGroup(
     [
@@ -96,7 +98,7 @@ test('a closed run whose group was left expanded shows every row', async ($, on)
 })
 
 test('a group holding a row that is no call (recalled memory, hook timing) draws as usual', async ($, on) => {
-  engine(on, { rows: [prompt(), said('', [editCall('e1'), bash('b2'), bash('b3')])] })
+  engine(on, { rows: [prompt(), said('', [editCall('e1'), bash('b2'), bash('b3')]), moveOn()] })
   const group = {
     ...(toolGroup([
       ['b2', 'Bash'],
@@ -109,7 +111,7 @@ test('a group holding a row that is no call (recalled memory, hook timing) draws
 })
 
 test('on the main screen runs never fold; one-line results still draw', async ($, on) => {
-  engine(on, { rows: [prompt(), said('', [editCall('e1'), editCall('e2')])] })
+  engine(on, { rows: [prompt(), said('', [editCall('e1'), editCall('e2')]), moveOn()] })
   expect(await isStock($, onMainScreen(toolUse('e1')))).toBe(true)
   expect(await isStock($, onMainScreen(toolUse('e2')))).toBe(true)
   const ui = await $.ui.mount(
@@ -120,7 +122,7 @@ test('on the main screen runs never fold; one-line results still draw', async ($
 })
 
 test('ctrl+o shows no Collapse line under an open run', async ($, on) => {
-  engine(on, { rows: [prompt(), said('', [editCall('e1'), editCall('e2')])] })
+  engine(on, { rows: [prompt(), said('', [editCall('e1'), editCall('e2')]), moveOn()] })
   const head = await $.ui.mount(toolUse('e1'))
   await head.press({ key: 'fold' })
   await head.unmount()
@@ -151,12 +153,16 @@ test('every file a command changed counts, shown in its diff or not', async ($, 
     moreFiles: 2,
     changedFiles: ['C:/proj/a.ts', 'C:/proj/b.ts', 'C:/proj/c.ts'],
   }
-  engine(on, { rows: [prompt(), said('', [bash('b1', { stdout: 'ok', bashEditDiff: diff }), editCall('e2')])] })
+  engine(on, {
+    rows: [prompt(), said('', [bash('b1', { stdout: 'ok', bashEditDiff: diff }), editCall('e2')]), moveOn()],
+  })
   expect(await runLineOf($, toolUse('b1', 'Bash'))).toContain('Updated 4 files, ran 1 shell command')
 })
 
 test('one file is counted once, however its path is written', async ($, on) => {
-  engine(on, { rows: [prompt(), said('', [editCall('e1', 'C:\\proj\\a.ts'), editCall('e2', 'c:/proj/A.ts')])] })
+  engine(on, {
+    rows: [prompt(), said('', [editCall('e1', 'C:\\proj\\a.ts'), editCall('e2', 'c:/proj/A.ts')]), moveOn()],
+  })
   expect(await runLineOf($, toolUse('e1'))).toContain('Updated 1 file  +4 −2')
 })
 
@@ -176,6 +182,7 @@ test('tool searches, code lookups and MCP resource reads fold with the rest', as
     rows: [
       prompt(),
       said('', [editCall('e1'), call('t2', 'ToolSearch'), call('l3', 'LSP'), call('m4', 'ReadMcpResourceTool')]),
+      moveOn(),
     ],
   })
   expect(await runLineOf($, toolUse('e1'))).toContain(
@@ -184,7 +191,7 @@ test('tool searches, code lookups and MCP resource reads fold with the rest', as
 })
 
 test('rows the transcript lacks read it again once a tick, not once a row', async ($, on) => {
-  const { counts } = engine(on, { rows: [prompt(), said('', [editCall('e1'), editCall('e2')])] })
+  const { counts } = engine(on, { rows: [prompt(), said('', [editCall('e1'), editCall('e2')]), moveOn()] })
   for (let i = 0; i < 20; i++) await isStock($, toolUse(`gone${i}`))
   // The first read, and one more for the first row it lacked: two forms each.
   expect(counts.reads).toBeLessThanOrEqual(4)

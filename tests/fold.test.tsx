@@ -8,6 +8,7 @@ import {
   failedCall,
   isBlank,
   isStock,
+  moveOn,
   PATCH,
   prompt,
   results,
@@ -20,7 +21,8 @@ import {
 } from './kit'
 
 // e1, e2, w3 in one run; text, e4 alone; text, e5 then a question (not foldable);
-// text, then b7 (Bash), r8 (Read), e9 in one run; text, then a failed Bash and e11.
+// text, then b7 (Bash), r8 (Read), e9 in one run; text, then a failed Bash and e11; Claude's
+// closing text, so every run is over.
 const ROWS: Row[] = [
   prompt(),
   said('', [editCall('e1', 'C:\\proj\\a.ts'), editCall('e2', 'C:\\proj\\a.ts')]),
@@ -34,6 +36,7 @@ const ROWS: Row[] = [
   said('Checking.', [call('b7', 'Bash', { stdout: 'ok' }), call('r8', 'Read'), editCall('e9', 'C:/proj/d.ts')]),
   results('e9'),
   said('Again.', [failedCall('b10', 'Bash'), editCall('e11', 'C:/proj/e.ts')]),
+  moveOn(),
 ]
 
 test('a run folds into its first row, the rest draw nothing', async ($, on) => {
