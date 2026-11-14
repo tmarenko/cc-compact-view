@@ -8,7 +8,8 @@ import type { Flat } from './transcript'
 import { transcript } from './transcript'
 
 // Which run of calls a call belongs to. A run: finished foldable calls in one conversation
-// with nothing drawn between them. Only a run of two or more folds.
+// with nothing drawn between them. Only a run of two or more folds, and only once the
+// conversation has moved on past it (isOver).
 
 // By tool_use_id: each foldable call's outcome as this session saw it made, and the subagent
 // that made it (render events don't say). One open state per run, under its first call's id.
@@ -42,7 +43,29 @@ export function toggleRun($: EngineInterface, firstId: string) {
 // run's line can't sit inside such a group while its other rows hide.
 export const stockGrouped = new Set<string>()
 
-export type RunState = { run: string[]; flat: Flat; known: Record<string, CallState>; isOpenNow: boolean }
+// The main conversation's latest foldable call, and the one Claude's reply last began after: the
+// spinner says a reply has begun before its text reaches the transcript.
+let lastMainCall: string | undefined
+let replyAfter: string | undefined
+
+export function noteMainCall(id: string) {
+  lastMainCall = id
+}
+
+// Claude's reply has begun on the main loop: true when it follows calls no earlier reply did.
+export function noteReplyBegan() {
+  if (lastMainCall === undefined || replyAfter === lastMainCall) return false
+  replyAfter = lastMainCall
+  return true
+}
+
+export type RunState = {
+  run: string[]
+  flat: Flat
+  known: Record<string, CallState>
+  isOpenNow: boolean
+  isOver: boolean
+}
 
 // What a finished call left: the files it changed, or stock for one drawn as usual.
 export function outcomeOf(tool: string, result: unknown): CallState {
@@ -85,6 +108,17 @@ function runOf(flat: Flat, id: string, known: Record<string, CallState>, own: Re
   return run.includes(id) ? run : undefined
 }
 
+// Whether the conversation has moved on past the run: something drawn follows its last call (a
+// prompt, Claude's text, a thinking update), or Claude's reply began after it on the main loop.
+// Until then its rows stay as drawn. Folding each call as it ended pulled the rows above up and
+// down call by call, under the text being read.
+function isOver(flat: Flat, run: string[], agentId: string | undefined) {
+  const last = flat.list.findIndex(one => one.call.tool_use_id === run.at(-1))
+  if (flat.isEndBreak || flat.list.slice(last + 1).some(one => one.isAfterBreak)) return true
+  if (agentId !== undefined || replyAfter === undefined) return false
+  return flat.list.findIndex(one => one.call.tool_use_id === replyAfter) >= last
+}
+
 const agentsOf = (flat: Flat) => flat.list.flatMap(({ call }) => (call.agentId ? [call.agentId] : []))
 
 // The subagent that made `id`, or undefined for the main conversation. As recorded when the call
@@ -109,10 +143,11 @@ async function ownerOf($: EngineInterface, id: string): Promise<string | undefin
   return undefined
 }
 
-// The run of two or more holding `id` and whether a click opened it; undefined when it folds into none.
+// The run of two or more holding `id`, whether a click opened it, and whether the conversation has
+// moved on past it; undefined when it folds into none, now or later.
 // Errors are not swallowed here: a row that drew the stock way while the rest of its run
 // stayed hidden would lose those rows, so a failure trips the whole mod off instead.
-export async function foldState(
+export async function runState(
   $: EngineInterface,
   id: string,
   own: ReadonlySet<string> = new Set(),
@@ -126,7 +161,14 @@ export async function foldState(
   // (its owner unknown, and no transcript names the subagent), it would draw as usual, so no
   // row of the run may hide.
   if (run[0] !== id && (await ownerOf($, run[0]!)) !== agentId) return undefined
-  return { run, flat, known, isOpenNow: await read($, memberOf(isOpen, { requestId: run[0]! })) }
+  const isOpenNow = await read($, memberOf(isOpen, { requestId: run[0]! }))
+  return { run, flat, known, isOpenNow, isOver: isOver(flat, run, agentId) }
+}
+
+// The run holding `id` once it folds: two or more calls, and the conversation moved on past them.
+export async function foldState($: EngineInterface, id: string, own: ReadonlySet<string> = new Set()) {
+  const state = await runState($, id, own)
+  return state?.isOver ? state : undefined
 }
 
 // Whether a call's result line sits in a closed run, and so draws nothing: the run's line says it all.

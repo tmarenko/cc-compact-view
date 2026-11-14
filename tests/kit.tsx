@@ -68,6 +68,8 @@ export function engine(
     return { value: undefined }
   })
   on('clock.sleep', () => ({ value: undefined }))
+  // Stores the rows a test raises with `$.session.append`, as a session would.
+  mock.session(on)
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
     return <Text>stock row</Text>
@@ -85,6 +87,29 @@ export const said = (text: string, toolUses: SessionMessage['toolUses'], thinkin
 })
 export const results = (...ids: string[]): Row =>
   ({ role: 'user', text: '', toolUses: [], toolResults: ids.map(id => ({ tool_use_id: id, text: 'ok' })) }) as never
+// Claude's text after the calls: the conversation has moved on, so the runs above it fold.
+export const moveOn = (): Row => said('Done.', [])
+
+// A row reaching a conversation, as `session.append` raises it: Claude's text, a prompt, or a
+// tool result (`text` names its call). Each a fresh row id.
+let appendedRows = 0
+export function appended(door: 'response' | 'prompt' | 'tool-result', text: string, agentId?: string) {
+  const row = {
+    response: {
+      message: { type: 'assistant', role: 'assistant', content: [{ type: 'text', text }] },
+      origin: { kind: 'model', model: 'test-model' },
+    },
+    prompt: {
+      message: { type: 'user', role: 'user', content: [{ type: 'text', text }] },
+      origin: { kind: 'composer' },
+    },
+    'tool-result': {
+      message: { type: 'user', role: 'user', content: [{ type: 'tool_result', tool_use_id: text, content: 'ok' }] },
+      origin: { kind: 'tool', tool: 'Bash' },
+    },
+  }[door]
+  return { ...row, door, uuid: `row-${appendedRows++}`, ...(agentId === undefined ? {} : { agentId }) } as never
+}
 
 // Finished calls in a transcript.
 export const editCall = (id: string, path = `C:/proj/${id}.ts`) => ({
@@ -145,6 +170,17 @@ export const toolResult = (id: string, tool: string, output: unknown, extra: Rec
     surface: 'terminal',
     viewport: FULLSCREEN,
     props: { tool_use_id: id, tool, output, isErrored: false, ...extra },
+  }) as never
+
+// The line that animates while a turn runs, in one of its modes (`responding`: Claude's text streams).
+export const spinner = (mode: 'requesting' | 'responding' | 'thinking' | 'tool-input' | 'tool-use') =>
+  ({
+    plugin: PLUGIN,
+    component: 'Spinner',
+    requestId: 'spinner',
+    surface: 'terminal',
+    viewport: FULLSCREEN,
+    props: { word: 'Working', message: null, suffix: '…', mode },
   }) as never
 
 // An engine group line over [id, tool, isRunning?, isErrored?] calls.

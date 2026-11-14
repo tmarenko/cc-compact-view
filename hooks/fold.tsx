@@ -4,12 +4,24 @@ import type { CallState } from '../types'
 import { clickableLine, TEXT_INDENT } from './draw'
 import { isFoldable, summarize } from './kinds'
 import type { RunState } from './runs'
-import { foldState, outcomeOf, recordCall, recordOwner, stateOf, stockGrouped, toggleRun } from './runs'
-import { fallBack, isFolding, redrawAll } from './switch'
-import { readAgain } from './transcript'
+import {
+  foldState,
+  noteMainCall,
+  noteReplyBegan,
+  outcomeOf,
+  recordCall,
+  recordOwner,
+  runState,
+  stateOf,
+  stockGrouped,
+  toggleRun,
+} from './runs'
+import { fallBack, isActive, isFolding, redrawAll } from './switch'
+import { isBreakRow, readAgain } from './transcript'
 
 // Folds a run of finished tool calls (consecutive, nothing drawn between them) into one
-// row: `Updated 2 files, ran 3 shell commands, read 1 file  +52 −7`. A click opens the
+// row once the conversation has moved on past it (Claude's reply, the next prompt):
+// `Updated 2 files, ran 3 shell commands, read 1 file  +52 −7`. A click opens the
 // run into its usual rows under that line, and closes it again. A failed call folds too and
 // counts as its tool's kind, as the engine's own group line folds one. A running call (a
 // foreground subagent included), a call inside an engine group drawn the usual way, and any
@@ -60,6 +72,7 @@ export const registerFold: Register = on => {
   on('tool.call', async ($, e, next) => {
     if (!isFoldable(e.tool) || next.origin.plugin !== 'engine') return next(e)
     const { tool_use_id: id, agentId } = e
+    if (agentId === undefined) noteMainCall(id)
     // Drawing only: a failed write must never fail the call itself.
     const set = (state: CallState) => {
       readAgain()
@@ -99,6 +112,27 @@ export const registerFold: Register = on => {
     redrawAll($)
     return compacted
   }).catch(($, e, next) => fallBack($, 'after a compaction', e, next))
+
+  // A row drawn after the calls (Claude's text, a thinking update, a prompt): the run above it is
+  // over, so its rows read the transcript again and fold.
+  on('session.append', async ($, e, next) => {
+    const appended = await next(e)
+    if (appended.deny === undefined && e.door !== 'queue' && isBreakRow(e.message) && isActive()) {
+      readAgain()
+      redrawAll($)
+    }
+    return appended
+  }).catch(($, e, next) => fallBack($, 'after a row was added', e, next))
+
+  // Claude's reply has begun on the main loop: every run before it is over. Its rows fold now,
+  // before the reply's text reaches the transcript, so the run's line is in place as the text starts.
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    if (e.props.mode === 'responding' && noteReplyBegan() && (await isFolding($, e))) {
+      readAgain()
+      redrawAll($)
+    }
+    return next(e)
+  }).catch(($, e, next) => fallBack($, 'watching for a reply', e, next))
 
   // A standalone row. Closed: the run's first draws the run's line, the others nothing
   // (not even their blank line). Open: the line, then every row as usual.
@@ -143,7 +177,14 @@ export const registerFold: Register = on => {
     const hasOtherRows = isCallsOnly === false && !grouped.some(c => c.isErrored || c.isInterrupted)
     const isCandidate = ids.length === grouped.length && !hasOtherRows && grouped.every(c => isFoldable(c.tool))
     // Decided as if this group had kept nothing out, while other rows still read the set as it was.
-    const state = isCandidate ? await foldState($, ids[0]!, own) : undefined
+    const state = isCandidate ? await runState($, ids[0]!, own) : undefined
+    // A run still growing draws every row as usual, so its group keeps nothing out: once something
+    // follows the run, all its rows decide again together, in whatever order they draw.
+    if (state && !state.isOver) {
+      for (const id of ids) stockGrouped.delete(id)
+      if (wasStock > 0) redrawAll($)
+      return next(e)
+    }
     const folds = state !== undefined && ids.every(id => state.run.includes(id)) && (state.isOpenNow || !isExpanded)
     // One step, after the wait: a row that drew meanwhile read a set that holds, or is redrawn.
     for (const id of ids) {

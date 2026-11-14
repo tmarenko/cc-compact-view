@@ -1,12 +1,14 @@
 import { expect, test } from 'claude-code/testing'
 
 import {
+  appended,
   call,
   editCall,
   engine,
   failedCall,
   isBlank,
   isStock,
+  moveOn,
   PATCH,
   prompt,
   results,
@@ -27,6 +29,7 @@ test('a thinking update shown between calls ends the run', async ($, on) => {
       said('', [editCall('e1'), editCall('e2')]),
       results('e1', 'e2'),
       said('', [editCall('e3'), editCall('e4')], 'The render needs about 5 minutes.'),
+      moveOn(),
     ],
   })
   // e3 heads its own run: it draws a run line, not nothing.
@@ -34,26 +37,35 @@ test('a thinking update shown between calls ends the run', async ($, on) => {
 })
 
 test('an empty thinking block does not end the run', async ($, on) => {
-  engine(on, { rows: [prompt(), said('', [editCall('e1')]), results('e1'), said('', [editCall('e2')], '')] })
+  engine(on, {
+    rows: [prompt(), said('', [editCall('e1')]), results('e1'), said('', [editCall('e2')], ''), moveOn()],
+  })
   expect(await isBlank($, toolUse('e2'))).toBe(true)
 })
 
-test('a running call keeps its row; it folds once finished', async ($, on) => {
+test('a running call keeps its row; its run folds once Claude writes after it', async ($, on) => {
   let isDone = false
+  let isAnswered = false
   engine(on, {
     rows: () => [
       prompt(),
       said('', [editCall('e1')]),
       results('e1'),
       said('', [isDone ? bash('b2') : runningCall('b2', 'Bash')]),
+      ...(isAnswered ? [results('b2'), moveOn()] : []),
     ],
   })
   on('tool.call', () => ({ result: { stdout: 'ok' } }) as never)
   expect(await isStock($, toolUse('b2', 'Bash', true))).toBe(true)
   expect(await isStock($, toolUse('e1'))).toBe(true)
-  // It finishes: the call is recorded and the transcript read again.
+  // It finishes: the call is recorded and the transcript read again, but nothing follows the run yet.
   isDone = true
   await $.tool.call({ tool: 'Bash', tool_use_id: 'b2', command: 'sleep 300' } as never)
+  expect(await isStock($, toolUse('e1'))).toBe(true)
+  expect(await isStock($, toolUse('b2', 'Bash'))).toBe(true)
+  // Claude's text reaches the transcript: the run is over and folds.
+  isAnswered = true
+  await $.session.append(appended('response', 'Done.'))
   expect(await runLineOf($, toolUse('e1'))).toContain('Updated 1 file, ran 1 shell command')
   expect(await isBlank($, toolUse('b2', 'Bash'))).toBe(true)
 })
@@ -94,7 +106,7 @@ test('a group the transcript splits draws as usual, and the mod stays on', async
 })
 
 test('an open run has a line under its last call that closes it', async ($, on) => {
-  engine(on, { rows: [prompt(), said('', [editCall('e1'), editCall('e2'), editCall('e3')])] })
+  engine(on, { rows: [prompt(), said('', [editCall('e1'), editCall('e2'), editCall('e3')]), moveOn()] })
   const result = (id: string) => toolResult(id, 'Edit', { filePath: `C:/proj/${id}.ts`, structuredPatch: PATCH })
   const head = await $.ui.mount(toolUse('e1'))
   await head.press({ key: 'fold' })
@@ -115,7 +127,11 @@ test('an open run has a line under its last call that closes it', async ($, on) 
 
 test('an engine group holding a failed command folds into one line with the rest', async ($, on) => {
   engine(on, {
-    rows: [prompt(), said('', [editCall('e1'), bash('b2'), failedCall('b3', 'Bash'), bash('b4'), editCall('e5')])],
+    rows: [
+      prompt(),
+      said('', [editCall('e1'), bash('b2'), failedCall('b3', 'Bash'), bash('b4'), editCall('e5')]),
+      moveOn(),
+    ],
   })
   // Not the head: the group draws nothing, the run's line is above it.
   expect(
@@ -135,7 +151,11 @@ test('subagent launches and MCP calls fold into the run; a running agent keeps i
   const agent = (id: string) => call(id, 'Agent', { status: 'async_launched' })
   const mcp = call('m5', 'mcp__claude-mem__work_state_write')
   engine(on, {
-    rows: [prompt(), said('', [editCall('e1'), bash('b2'), agent('a3'), agent('a4'), mcp, runningCall('a7', 'Agent')])],
+    rows: [
+      prompt(),
+      said('', [editCall('e1'), bash('b2'), agent('a3'), agent('a4'), mcp]),
+      said('Waiting on the agent.', [runningCall('a7', 'Agent')]),
+    ],
   })
   expect(await runLineOf($, toolUse('e1'))).toContain(
     'Updated 1 file, ran 1 shell command, launched 2 agents, called 1 MCP tool',
@@ -155,7 +175,7 @@ test("a subagent's own runs fold, read from its transcript", async ($, on) => {
   // The main conversation knows nothing of the subagent's calls.
   engine(on, {
     rows: [prompt()],
-    agents: { 'agent-1': [prompt('task for the agent'), said('', [editCall('s1'), bash('s2'), bash('s3')])] },
+    agents: { 'agent-1': [prompt('task for the agent'), said('', [editCall('s1'), bash('s2'), bash('s3')]), moveOn()] },
   })
   on(
     'tool.call',
@@ -181,7 +201,7 @@ test("a subagent's own runs fold, read from its transcript", async ($, on) => {
 })
 
 test('a command first drawn in a live group folds once it finishes and gets its own row', async ($, on) => {
-  engine(on, { rows: [prompt(), said('', [bash('b1'), bash('b2'), bash('b3')])] })
+  engine(on, { rows: [prompt(), said('', [bash('b1'), bash('b2'), bash('b3')]), moveOn()] })
   // While b1 ran, the engine drew it in a live group (that group is never drawn again).
   expect(await isStock($, toolGroup([['b1', 'Bash', true]]))).toBe(true)
   // Finished, it changed files and the engine drew it standalone, the rest in a group.

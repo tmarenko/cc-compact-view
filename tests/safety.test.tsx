@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Row } from './kit'
-import { editCall, engine, isStock, prompt, runCommand, runLineOf, said, startSession, toolUse } from './kit'
+import { editCall, engine, isStock, moveOn, prompt, runCommand, runLineOf, said, startSession, toolUse } from './kit'
 
-const ROWS: Row[] = [prompt(), said('', [editCall('e1'), editCall('e2'), editCall('e3')])]
+const ROWS: Row[] = [prompt(), said('', [editCall('e1'), editCall('e2'), editCall('e3')]), moveOn()]
 
 // The transcript read fails until `fix()` is called.
 function failingRows() {

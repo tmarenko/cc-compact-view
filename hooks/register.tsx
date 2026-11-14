@@ -31,7 +31,7 @@ export const register: Register = (on, options) => {
     const note = (await setEnabled($, turnOn)) ? '' : ' (not saved, this session only)'
     // Folded runs follow the switch at once; one-line results keep how they were first drawn.
     $.ui.invalidate('ui.render')
-    const what = turnOn ? 'edits show one summary line, runs fold' : 'the normal Claude Code view'
+    const what = turnOn ? 'edits show one summary line, runs fold once Claude moves on' : 'the normal Claude Code view'
     return { text: `${NAME} ${turnOn ? 'on' : 'off'}: ${what}${note}` }
   }).catch((_$, _e, next) => ({
     text: `${NAME}: the command failed (${next.error.message ?? next.error.kind})`,

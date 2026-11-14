@@ -35,10 +35,18 @@ or one subagent's) with nothing drawn between them: no text from Claude, no
 thinking update shown in the transcript, no prompt or notification. A run of
 one call is not folded (an edit still gets its one-line result).
 
+**When a run folds.** Only once the conversation has moved on past it: Claude's
+reply begins (main conversation only), Claude writes or thinks after it, or the
+next prompt arrives. Until then every row of the run draws as usual, so the
+rows above the newest one don't move while the run grows. Folding each run as
+its calls finished pulled the text above up and down call by call.
+
 **What ends a run and stays visible:**
 
 - a running call: its row stays (the command, the ctrl+b hint; a foreground
-  subagent while it works) and joins the run line when it finishes;
+  subagent while it works). The run before it is still growing, so it doesn't
+  fold either; by the time the conversation moves on the call has finished and
+  joined it;
 - any other tool: AskUserQuestion, plan prompts, Skill, ...;
 - a live engine group (one of its calls still running) draws as usual and
   excludes nothing: the engine may later move a finished call out of it (a
@@ -119,6 +127,23 @@ line per changed file follows the command's normal output.
   `owners[tool_use_id] = agentId`, since render events don't say whose a row
   is. The writes redraw every row that read them. Both records keep the last
   500 calls; older ones are read from the transcript instead.
+- Whether a run is over (`isOver` in `runs.ts`): a later call sits after a
+  break (`isAfterBreak`), or a break follows the conversation's last call
+  (`isEndBreak`); on the main conversation, also once Claude's reply began
+  after the run's last call. A subagent's run waits for the subagent's own
+  text. Two hooks redraw at the moment that happens, since nothing else would:
+  `session.append`, when a row that counts as a break (`isBreakRow`: a prompt,
+  Claude's text, a thinking update shown) reaches a conversation (not a
+  `queue` record: that is no row of it), and the `Spinner` hook, when the spinner turns
+  to `responding` after a main-conversation call no earlier reply followed
+  (`noteMainCall`, `noteReplyBegan`). The spinner comes first, so the run's
+  line is in place as the reply's text starts.
+- `runState` finds the run holding a call and says whether it is over;
+  `foldState` is the same limited to runs that are over, and is what rows and
+  results fold by. An engine group reads `runState`: while its run grows it
+  draws as usual and keeps nothing out (its ids leave `stockGrouped`), since
+  the run's other rows draw as usual too. Once the run is over all its rows
+  decide again together, in whatever order they draw.
 - A row finds its conversation (`ownerOf`): the recorded owner, else the main
   transcript, else the subagents the transcripts name (each Agent call's
   `agentId`), level by level. So a subagent's run folds even when the mod never
@@ -157,16 +182,16 @@ line per changed file follows the command's normal output.
 | `hooks/hooks.json` | the one hooks module: `register.tsx` |
 | `hooks/register.tsx` | the entry: `session.start` (registers `/compact-view`), `command.run`; calls `registerResults` and `registerFold` |
 | `hooks/results.tsx` | the `ToolResult` hook: one-line results, the diff click, shell file lines, hiding results of a closed run, the bottom `Collapse:` line (`isDiffOpen` state) |
-| `hooks/fold.tsx` | the fold's hooks (`tool.call`, `ToolUse`, `ToolGroup`) and the run line (`drawRun`, `collapseLine`) |
-| `hooks/runs.ts` | which run a call belongs to (`runOf`, `foldState`, `isHidden`), the call outcomes (`outcomeOf`, `stateOf`), `stockGrouped`; owns the `calls`, `owners` and `isOpen` state |
-| `hooks/transcript.ts` | reads a conversation's calls in order with their breaks (`flatten`), cached per conversation until the next call (`readAgain`) |
+| `hooks/fold.tsx` | the fold's hooks (`tool.call`, `session.append`, `Spinner`, `ToolUse`, `ToolGroup`) and the run line (`drawRun`, `collapseLine`) |
+| `hooks/runs.ts` | which run a call belongs to and whether it is over (`runOf`, `isOver`, `runState`, `foldState`, `isHidden`), the call outcomes (`outcomeOf`, `stateOf`), `stockGrouped`, the reply watch (`noteMainCall`, `noteReplyBegan`); owns the `calls`, `owners` and `isOpen` state |
+| `hooks/transcript.ts` | reads a conversation's calls in order with their breaks (`flatten`), cached per conversation until the next call (`readAgain`); which rows count as a break (`isBreakRow`) |
 | `hooks/kinds.ts` | the tool kinds a run folds and their wording (`isFoldable`, `summarize`): add a kind there |
 | `hooks/changes.ts` | what a call changed: `fileChange`, `bashChanges`, line counting, `relative` paths, the tool sets |
 | `hooks/draw.tsx` | `drawLine`, `clickableLine`, `plural`, `safe`, `GUTTER`, `TEXT_INDENT` |
 | `hooks/switch.ts` | the on/off switch and its store, the safety switch (`trip`, `fallBack`), `isFolding`, `redrawAll`, the plugin and command names |
 | `types/index.d.ts` | `$.state` contract: `calls` (outcome per call, shape tag `calls-3`), `owners` (subagent per call, `owners-1`), `isOpen` (per run), `isDiffOpen` (per one-line result) |
-| `tests/*.test.tsx` | `claude plugin test` suites: `register` (one-line results, diff click, toggle), `fold` (runs, clicks, groups), `runs` (thinking breaks, running calls, disagreeing groups, failed calls, agents/MCP, subagent views, bottom collapse line), `safety` (forced failures fall back), `edges` (concurrent drawing, subagent discovery, expanded and mixed groups, the main screen, ctrl+o, counting, transcript reads) |
-| `tests/kit.tsx` | test-only: the fake engine (counts reads and redraws, refuses unknown subagents), transcript rows and calls, the components a test mounts (on the fullscreen terminal; `onMainScreen` moves one off it), and checks (`isStock`, `isBlank`, `runLineOf`) |
+| `tests/*.test.tsx` | `claude plugin test` suites: `register` (one-line results, diff click, toggle), `fold` (runs, clicks, groups), `runs` (thinking breaks, running calls, disagreeing groups, failed calls, agents/MCP, subagent views, bottom collapse line), `safety` (forced failures fall back), `edges` (concurrent drawing, subagent discovery, expanded and mixed groups, the main screen, ctrl+o, counting, transcript reads), `moves-on` (when a run folds: the reply beginning, its text, the next prompt, a growing run's group, subagents) |
+| `tests/kit.tsx` | test-only: the fake engine (counts reads and redraws, refuses unknown subagents), transcript rows and calls (`moveOn`: Claude's text after them), the components a test mounts (on the fullscreen terminal; `onMainScreen` moves one off it; `spinner`), rows reaching a conversation (`appended`), and checks (`isStock`, `isBlank`, `runLineOf`) |
 | `scripts/check.mjs` | runs every check, writes `reports/` |
 | `scripts/typecheck.mjs` | finds Claude Code's API types and runs `tsc` against them |
 | `scripts/demo.mjs` | writes `docs/demo.svg`, the README's animated example (mocked data); `npm run demo` after changing what the run line says |
@@ -194,6 +219,9 @@ line per changed file follows the command's normal output.
   text (most thinking blocks are empty). Only the API form of the transcript
   has them.
 - **Subagents:** render events carry no `agentId`; only `tool.call` does.
+- **The reply beginning:** the `Spinner` row's `props.mode` turns to
+  `responding` as Claude's text starts to stream. If that changes, runs fold
+  a moment later, when the text reaches the transcript (`session.append`).
 - **Bash file changes** come from `output.bashEditDiff`, an internal,
   undocumented field. Claude Code only fills it when the session runs inside a
   git repository; without it, Bash changes are not counted (not a mod bug).
@@ -255,6 +283,8 @@ renamed render props (`ToolUse`, `ToolResult`, `ToolGroup`), the
 
 - A message sent while Claude works (mid-turn) may not end a run in the
   transcript's API form; the run line can then sit above it.
+- A turn that ends on a run with no text after it (Claude stopped, or Esc)
+  keeps the run's rows until your next message.
 - A stock engine group splits the runs around it, so a turn with one can show
   two run lines instead of one.
 - A subagent whose transcript the session can no longer read, or that no
